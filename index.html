@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta id="themeMeta" name="theme-color" content="#fbfbf9" />
+<title>Phase Portrait &middot; Scroll to Align</title>
+<style>
+  /* --paper / --ink-top / --ink-base are the artwork's colours (Style panel);
+     the rest are the shared demo UI tokens, flipped by body.dark when the
+     paper goes dark (borrowed from Chromatrix-Interactive) */
+  :root{ --ink:#111418; --accent:#e4572e; --muted:#8a9099;
+    --surface:#fff; --border:#d7dbe0; --hover:#f2f4f6; --tile:#e8ebee;
+    --paper:#fbfbf9; --ink-top:#111418; --ink-base:#111418; }
+  body.dark{ --ink:#f2f3f5; --muted:#8f959d;
+    --surface:#1d2023; --border:#3a3f45; --hover:#272b2f; --tile:#343a40; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  #track{height:700vh;position:relative;}
+  #stage{position:sticky;top:0;height:100vh;height:100svh;display:flex;align-items:center;
+    justify-content:center;overflow:hidden;}
+  #art{width:min(92vw,calc(90svh * var(--ar,0.8)));display:block;isolation:isolate;}
+  @media (pointer:fine){#stage{cursor:ns-resize;}}
+
+  /* the two sheets: fine ink gratings. The base carries the portrait as tiny
+     phase-shifts; the revealer is perfectly uniform and moves via inline
+     styles/attributes (inline so the <use> mini mirrors it live). Two inks
+     compound where the sheets cross — multiply on light paper like printed
+     acetate, screen on dark paper so light inks compose instead of vanishing.
+     Stroke width follows the density slider as an attribute on the groups. */
+  #baseG path{fill:none;stroke:var(--ink-base);stroke-linejoin:round;}
+  #revealG path,#revealG circle{fill:none;stroke:var(--ink-top);stroke-linejoin:round;}
+  #revealG{mix-blend-mode:multiply;transition:opacity .5s ease;}
+  body.dark #revealG{mix-blend-mode:screen;}
+  body.lifted #revealG{opacity:0 !important;}
+
+  /* "from a distance" mini: a live <use> mirror, bottom-left. The browser's
+     own antialiasing melts the fine grating into smooth tone at this size —
+     the moiré genuinely resolves at a distance, which is the whole point. */
+  #mini{position:fixed;left:20px;bottom:22px;width:140px;z-index:4;cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .5s,width .3s ease;}
+  #mini.show{opacity:1;pointer-events:auto;}
+  #mini.big{width:280px;}
+  #miniSvg{display:block;width:100%;height:auto;background:var(--paper);isolation:isolate;
+    border:1px solid var(--border);border-radius:10px;}
+  #miniLabel{font-size:11px;color:var(--muted);text-align:center;margin-top:5px;}
+  @media (max-width:600px){
+    #mini{display:none;} /* the step-back finale still gives the distance view */
+  }
+  @media (prefers-reduced-motion: reduce){
+    #mini,#revealG,#done,#note,#bookCard,#hint{transition:none;}
+    #breatheBtn{display:none !important;} /* ambient motion is opt-in only */
+  }
+
+  #bar{position:fixed;left:0;top:0;height:3px;width:0%;background:var(--accent);z-index:5;}
+  #hud{position:fixed;left:0;right:0;top:0;padding:16px 20px;display:flex;align-items:baseline;gap:14px;pointer-events:none;z-index:4;}
+  #title{font-size:15px;font-weight:700;}
+  #title span{font-weight:400;color:var(--muted);}
+  #credit{font-size:11px;color:var(--muted);}
+  #count{margin-left:auto;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap;}
+  @media (max-width:600px){
+    #title span,#credit{display:none;}
+  }
+  #btns{position:fixed;right:20px;bottom:22px;z-index:6;display:flex;gap:8px;
+    flex-wrap:wrap;justify-content:flex-end;max-width:calc(100vw - 40px);}
+  #btns button{font:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--surface);
+    border:1px solid var(--border);border-radius:999px;padding:7px 14px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.05);white-space:nowrap;}
+  #btns button:hover{border-color:var(--accent);color:var(--accent);}
+  /* intro statement over the empty stage; scroll-faded as the lines arrive */
+  #intro{position:fixed;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;
+    font-size:clamp(20px,3.6vw,34px);font-weight:700;letter-spacing:-.01em;color:var(--ink);
+    padding:0 24px;pointer-events:none;z-index:4;}
+  #hint{position:fixed;left:0;right:0;bottom:26px;text-align:center;font-size:13px;color:var(--muted);transition:opacity .4s;pointer-events:none;}
+  @media (max-width:600px){
+    #hint{bottom:104px;} /* clears the wrapped pill rows */
+  }
+  #done{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+    padding:9px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .5s;pointer-events:none;z-index:5;}
+  #done.show{opacity:1;}
+  /* transient feedback (Create actions etc.) — same look as the toast, above it */
+  #note{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+    padding:9px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .4s;pointer-events:none;z-index:8;}
+  #note.show{opacity:1;}
+
+  /* artworks switcher (populated from art/manifest.js) */
+  #gallery{position:fixed;right:20px;bottom:64px;background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:8px;z-index:7;box-shadow:0 8px 28px rgba(0,0,0,.12);display:none;max-height:60vh;overflow:auto;
+    min-width:240px;max-width:calc(100vw - 40px);}
+  #gallery.open{display:block;}
+  .galItem{display:flex;gap:10px;align-items:center;padding:7px 9px;border-radius:10px;text-decoration:none;color:var(--ink);}
+  .galItem:hover{background:var(--hover);}
+  .galItem.current{outline:2px solid var(--accent);}
+  .galCover{width:46px;height:46px;border-radius:4px;background:var(--tile);flex:0 0 auto;display:flex;
+    align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--muted);overflow:hidden;}
+  .galCover img{width:100%;height:100%;object-fit:cover;display:block;}
+  .galTitle{font-size:13px;font-weight:700;}
+  .galBook{font-size:11px;color:var(--muted);}
+
+  /* experiment card shown at the completion moment */
+  #bookCard{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px 14px;opacity:0;transition:opacity .5s;
+    pointer-events:none;z-index:5;box-shadow:0 4px 18px rgba(0,0,0,.12);}
+  #bookCard.show{opacity:1;pointer-events:auto;}
+  #bookCard .galCover{width:60px;height:60px;font-size:18px;}
+  .bcFrom{font-size:11px;color:var(--muted);}
+  .bcBook{font-size:13px;font-weight:700;max-width:240px;}
+  .bcBuy{font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;}
+  .bcBuy:hover{text-decoration:underline;}
+
+  /* popover panels: Style (patterns/colours/tune) + Create (image/camera/message) */
+  #panel,#createPanel{position:fixed;right:20px;bottom:64px;background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:12px;z-index:7;box-shadow:0 8px 28px rgba(0,0,0,.12);display:none;max-height:70vh;overflow:auto;
+    width:262px;max-width:calc(100vw - 40px);}
+  #panel.open,#createPanel.open{display:block;}
+  .pLabel{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 4px 8px;}
+  .preset{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:none;background:none;
+    border-radius:10px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;color:var(--ink);text-align:left;}
+  .preset:hover{background:var(--hover);}
+  .preset.current{outline:2px solid var(--accent);}
+  .patGlyph{width:20px;height:20px;flex:0 0 auto;color:var(--muted);}
+  .preset.current .patGlyph{color:var(--accent);}
+  .strip{display:flex;border-radius:5px;overflow:hidden;flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);}
+  .strip i{width:14px;height:20px;}
+  #panel hr,#createPanel hr{border:none;border-top:1px solid var(--hover);margin:10px 0;}
+  #wells{display:flex;gap:10px;padding:0 4px 4px;}
+  .well{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--muted);}
+  .well input{width:34px;height:34px;padding:0;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;}
+  .well input::-webkit-color-swatch-wrapper{padding:3px;}
+  .well input::-webkit-color-swatch{border:none;border-radius:5px;}
+  .tRow{display:flex;align-items:center;gap:8px;padding:3px 4px;font-size:12px;font-weight:600;color:var(--muted);}
+  .tRow span{flex:0 0 76px;}
+  .tRow input{flex:1;accent-color:var(--accent);min-width:0;}
+  .tRow b{flex:0 0 22px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;}
+  .tTip{font-size:11px;color:var(--muted);margin:6px 4px 2px;font-weight:400;}
+  .cpHint{font-size:11px;color:var(--muted);margin:2px 4px 4px;}
+  #camBox video{display:block;width:100%;border-radius:10px;background:#000;transform:scaleX(-1);}
+  #camRow{display:flex;gap:8px;margin-top:8px;}
+  #camRow button,#msgRow button{font:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--surface);
+    border:1px solid var(--border);border-radius:999px;padding:6px 14px;cursor:pointer;}
+  #camRow button:hover,#msgRow button:hover{border-color:var(--accent);color:var(--accent);}
+  #msgRow{display:flex;gap:8px;padding:0 2px;}
+  #msgRow input{flex:1;min-width:0;font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
+    border:1px solid var(--border);border-radius:10px;padding:7px 10px;outline:none;}
+  #msgRow input:focus{border-color:var(--accent);}
+</style>
+</head>
+<body>
+  <div id="bar"></div>
+  <div id="hud">
+    <div id="title">Phase Portrait <span>&middot; scroll to align</span></div>
+    <div id="credit">A moir&eacute; experiment &middot; by Thomas Pavitte</div>
+    <div id="count"></div>
+  </div>
+
+  <div id="track">
+    <div id="stage">
+      <svg id="art" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+
+  <div id="btns">
+    <button id="galBtn" style="display:none">Artworks</button>
+    <button id="styleBtn">Style</button>
+    <button id="createBtn">Create</button>
+    <button id="liftBtn">Lift the sheet</button>
+    <button id="printBtn">Print kit</button>
+    <button id="breatheBtn" style="display:none">Breathe</button>
+  </div>
+  <input id="filePick" type="file" accept="image/*" hidden />
+
+  <div id="gallery"></div>
+
+  <div id="panel">
+    <div class="pLabel">Pattern</div>
+    <div id="pats"></div>
+    <hr />
+    <div class="pLabel">Colours</div>
+    <div id="presets"></div>
+    <hr />
+    <div id="wells"></div>
+    <button id="shuffleBtn" class="preset">Shuffle colours</button>
+    <hr />
+    <div class="pLabel">Tune</div>
+    <div class="tRow"><span>Density</span><input id="tuneP" type="range" min="5" max="14" step="1" value="8" /><b id="tunePv">8</b></div>
+    <div class="tRow"><span>Contrast</span><input id="tuneC" type="range" min="50" max="100" value="95" /><b id="tuneCv">95</b></div>
+    <div class="tRow" id="ampRow" style="display:none"><span>Wave height</span><input id="tuneA" type="range" min="0" max="14" value="7" /><b id="tuneAv">7</b></div>
+    <div class="tTip" id="ringTip" style="display:none">Rings: double-click the artwork to move the centre</div>
+  </div>
+
+  <div id="createPanel">
+    <div class="pLabel">Image</div>
+    <button id="chooseBtn" class="preset">Choose image</button>
+    <div class="cpHint">&hellip;or drop a file anywhere on the page</div>
+    <hr />
+    <div class="pLabel">Camera</div>
+    <button id="camBtn" class="preset">Take a selfie</button>
+    <div id="camBox" style="display:none">
+      <video id="camVid" autoplay playsinline muted></video>
+      <div id="camRow"><button id="snapBtn">Snap</button><button id="camCancel">Cancel</button></div>
+    </div>
+    <hr />
+    <div class="pLabel">Message</div>
+    <div id="msgRow"><input id="msgInput" type="text" maxlength="40" placeholder="Write something&hellip;" /><button id="msgBtn">Hide</button></div>
+  </div>
+
+  <div id="mini" title="How it looks from a distance">
+    <svg id="miniSvg" xmlns="http://www.w3.org/2000/svg"><use href="#artRoot"/></svg>
+    <div id="miniLabel">from a distance</div>
+  </div>
+
+  <div id="intro">One portrait, hidden in two sheets of lines</div>
+  <div id="bookCard"></div>
+  <div id="hint">Scroll to reveal</div>
+  <div id="done">&#10003; Aligned</div>
+  <div id="note"></div>
+
+<script>
+(function(){
+  if("scrollRestoration" in history) history.scrollRestoration="manual";
+  window.scrollTo(0,0);
+  window.addEventListener("load",()=>window.scrollTo(0,0));
+
+  const svgNS="http://www.w3.org/2000/svg";
+  const art=document.getElementById("art");
+  const stage=document.getElementById("stage");
+  const bar=document.getElementById("bar");
+  const count=document.getElementById("count");
+  const hint=document.getElementById("hint");
+  const done=document.getElementById("done");
+  const bookCard=document.getElementById("bookCard");
+  const mini=document.getElementById("mini");
+  mini.addEventListener("click",()=>mini.classList.toggle("big"));
+
+  /* ---------- the moiré geometry ----------
+     Classic hidden-image line moiré. Both sheets are gratings of period P with
+     50% ink duty. The base sheet's units are displaced along the pattern's
+     normal by up to MAXD wherever the portrait is dark; the revealer is
+     uniform. In registration, aligned regions show 50% ink (mid tone) and
+     displaced regions up to ~100% — the portrait appears from pure
+     interference. A half-period offset shows the negative.
+     P/CONTRAST/AMP and the ring centre are live-tunable (Style > Tune), so the
+     derived values are mutable and pattern units/periods are recomputed on
+     every build. */
+  const VBW=800,VBH=1000;        // portrait viewBox, --ar 0.8
+  const STEP=4;                  // sampling step
+  const SW=VBW/STEP,SH=VBH/STEP; // tone-sampling grid (200x250)
+  const S2=Math.SQRT1_2;         // diagonals
+  let P=8;                       // grating period in viewBox units
+  let CONTRAST=0.95;             // displacement as a fraction of P/2
+  let AMP=7;                     // waves carrier amplitude
+  let STROKE=P/2,MAXD=CONTRAST*P/2;
+  let CX=VBW/2,CY=VBH/2;         // ring centre (double-click moves it)
+  function setTune(){STROKE=P/2;MAXD=CONTRAST*P/2;}
+
+  function toneAt(t,x,y){
+    const c=Math.max(0,Math.min(SW-1,Math.round(x/STEP)));
+    const r=Math.max(0,Math.min(SH-1,Math.round(y/STEP)));
+    return t[r*SW+c];
+  }
+
+  /* Each pattern: displaced base sheet (buildBase -> d strings, one per unit,
+     for the staggered draw-in and the print kit; it also recomputes
+     units/periods from the current tune), a uniform revealer (revealMarkup ->
+     inner SVG for #revealG, also the overlay export), and applyOffset(o) —
+     phase offset in viewBox units along the pattern's normal. periods/dir
+     define the arrival travel (snapped multiples of P). */
+  const PATTERNS={
+    lines:{
+      label:"Lines",noun:"Line",units:0,periods:0,dir:-1,dragAxis:"y",
+      glyph:'<path d="M2 4H18M2 8.5H18M2 13H18M2 17.5H18"/>',
+      buildBase(t){
+        this.units=Math.floor(VBH/P);
+        this.periods=Math.ceil(VBH/P)+1;
+        const ds=[];
+        for(let i=0;i<this.units;i++){
+          const y0=i*P+STROKE/2;let d="";
+          for(let c=0;c*STEP<=VBW;c++){
+            const x=c*STEP;
+            d+=(c?"L":"M")+x+" "+(y0+MAXD*(1-toneAt(t,x,y0))).toFixed(2);
+          }
+          ds.push(d);
+        }
+        return ds;
+      },
+      revealMarkup(){
+        let d="";
+        for(let i=0;i<this.units;i++)d+="M0 "+(i*P+STROKE/2)+"H"+VBW;
+        return '<path d="'+d+'"/>';
+      },
+      applyOffset(g,o){g.style.transform="translateY("+o.toFixed(3)+"px)";}
+    },
+
+    verticals:{
+      label:"Verticals",noun:"Line",units:0,periods:0,dir:-1,dragAxis:"x",
+      glyph:'<path d="M4 2V18M8.5 2V18M13 2V18M17.5 2V18"/>',
+      buildBase(t){
+        this.units=Math.floor(VBW/P);
+        this.periods=Math.ceil(VBW/P)+1;
+        const ds=[];
+        for(let i=0;i<this.units;i++){
+          const x0=i*P+STROKE/2;let d="";
+          for(let c=0;c*STEP<=VBH;c++){
+            const y=c*STEP;
+            d+=(c?"L":"M")+(x0+MAXD*(1-toneAt(t,x0,y))).toFixed(2)+" "+y;
+          }
+          ds.push(d);
+        }
+        return ds;
+      },
+      revealMarkup(){
+        let d="";
+        for(let i=0;i<this.units;i++)d+="M"+(i*P+STROKE/2)+" 0V"+VBH;
+        return '<path d="'+d+'"/>';
+      },
+      applyOffset(g,o){g.style.transform="translateX("+o.toFixed(3)+"px)";}
+    },
+
+    diagonals:{
+      label:"Diagonals",noun:"Line",units:0,periods:0,dir:-1,dragAxis:"y",
+      glyph:'<path d="M2 12L12 2M2 18.5L18.5 2M8 20L20 8"/>',
+      // stripes along u=(1,1)/√2, periodic along v=(1,-1)/√2; c=(x-y)/√2
+      eachLine(cb){
+        const cMin=-VBH*S2,cMax=VBW*S2;
+        for(let c=cMin+STROKE/2;c<cMax;c+=P){
+          const t0=Math.max(0,c*Math.SQRT2),t1=Math.min(VBW,c*Math.SQRT2+VBH);
+          if(t1-t0<STEP)continue;
+          cb(c,t0,t1);
+        }
+      },
+      buildBase(t){
+        this.periods=Math.ceil((VBW+VBH)*S2/P)+2;
+        const ds=[];
+        this.eachLine((c,t0,t1)=>{
+          let d="";let first=true;
+          for(let x=t0;x<=t1;x+=STEP){
+            const y=x-c*Math.SQRT2;
+            const disp=MAXD*(1-toneAt(t,x,y));
+            d+=(first?"M":"L")+(x+disp*S2).toFixed(2)+" "+(y-disp*S2).toFixed(2);
+            first=false;
+          }
+          ds.push(d);
+        });
+        this.units=ds.length;
+        return ds;
+      },
+      revealMarkup(){
+        let d="";
+        this.eachLine((c,t0,t1)=>{
+          d+="M"+t0.toFixed(2)+" "+(t0-c*Math.SQRT2).toFixed(2)
+            +"L"+t1.toFixed(2)+" "+(t1-c*Math.SQRT2).toFixed(2);
+        });
+        return '<path d="'+d+'"/>';
+      },
+      applyOffset(g,o){
+        g.style.transform="translate("+(o*S2).toFixed(3)+"px,"+(-o*S2).toFixed(3)+"px)";
+      }
+    },
+
+    waves:{
+      label:"Waves",noun:"Wave",units:0,periods:0,dir:-1,dragAxis:"y",
+      LAM:190, // shared carrier on both sheets keeps registration exact
+      glyph:'<path d="M1 5q2.5-3.5 5 0t5 0t5 0t3 0M1 10.5q2.5-3.5 5 0t5 0t5 0t3 0M1 16q2.5-3.5 5 0t5 0t5 0t3 0"/>',
+      carrier(x){return AMP*Math.sin(2*Math.PI*x/this.LAM);},
+      buildBase(t){
+        this.units=Math.floor(VBH/P);
+        this.periods=Math.ceil((VBH+2*AMP+P)/P)+1;
+        const ds=[];
+        for(let i=0;i<this.units;i++){
+          const y0=i*P+STROKE/2;let d="";
+          for(let c=0;c*STEP<=VBW;c++){
+            const x=c*STEP,yc=y0+this.carrier(x);
+            d+=(c?"L":"M")+x+" "+(yc+MAXD*(1-toneAt(t,x,yc))).toFixed(2);
+          }
+          ds.push(d);
+        }
+        return ds;
+      },
+      revealMarkup(){
+        let d="";
+        for(let i=0;i<this.units;i++){
+          const y0=i*P+STROKE/2;
+          for(let c=0;c*STEP<=VBW;c++)
+            d+=(c?"L":"M")+(c*STEP)+" "+(y0+this.carrier(c*STEP)).toFixed(2);
+        }
+        return '<path d="'+d+'"/>';
+      },
+      applyOffset(g,o){g.style.transform="translateY("+o.toFixed(3)+"px)";}
+    },
+
+    rings:{
+      label:"Rings",noun:"Ring",units:0,periods:0,dir:1,dragAxis:"y",
+      glyph:'<circle cx="10" cy="10" r="3"/><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="10" />',
+      radius(k){return (k+1)*P+STROKE/2;},
+      rmax(){ // farthest corner from the (movable) centre
+        return Math.max(Math.hypot(CX,CY),Math.hypot(VBW-CX,CY),
+          Math.hypot(CX,VBH-CY),Math.hypot(VBW-CX,VBH-CY));
+      },
+      buildBase(t){
+        const R=this.rmax();
+        this.units=Math.ceil((R-STROKE/2)/P);
+        this.periods=Math.ceil(R/P)+1;
+        const ds=[];
+        for(let k=0;k<this.units;k++){
+          const r=this.radius(k);
+          const steps=Math.max(48,Math.min(900,Math.round(2*Math.PI*r/5)));
+          let d="";
+          for(let j=0;j<steps;j++){
+            const a=j/steps*2*Math.PI;
+            const x0=CX+r*Math.cos(a),y0=CY+r*Math.sin(a);
+            const rr=r+MAXD*(1-toneAt(t,x0,y0));
+            d+=(j?"L":"M")+(CX+rr*Math.cos(a)).toFixed(2)+" "+(CY+rr*Math.sin(a)).toFixed(2);
+          }
+          ds.push(d+"Z");
+        }
+        return ds;
+      },
+      revealMarkup(){
+        let m="";
+        for(let k=0;k<this.units;k++)
+          m+='<circle cx="'+CX+'" cy="'+CY+'" r="'+this.radius(k)+'"/>';
+        return m;
+      },
+      postMount(g){
+        this._c=[...g.querySelectorAll("circle")];
+        this._r=this._c.map(c=>+c.getAttribute("r"));
+      },
+      applyOffset(g,o){
+        for(let j=0;j<this._c.length;j++)
+          this._c[j].setAttribute("r",Math.max(0.1,this._r[j]+o));
+      }
+    }
+  };
+
+  /* ---------- ink sets (top sheet / base sheet / paper) ---------- */
+  const INKSETS=[
+    {name:"Ink",      top:"#111418",base:"#111418",paper:"#fbfbf9"},
+    {name:"Riso",     top:"#d7263d",base:"#1b4d9e",paper:"#faf6ee"},
+    {name:"Print",    top:"#d81e77",base:"#00a5cf",paper:"#ffffff"},
+    {name:"Ember",    top:"#e4572e",base:"#111418",paper:"#fbf3e4"},
+    {name:"Blueprint",top:"#eaf2ff",base:"#9fc2ff",paper:"#12264d"}
+  ];
+
+  function hslToHex(h,s,l){
+    const hue=((h%360)+360)%360,sat=s/100,light=l/100;
+    const a=sat*Math.min(light,1-light);
+    const f=n=>{
+      const k=(n+hue/30)%12;
+      const c=light-a*Math.max(Math.min(k-3,9-k,1),-1);
+      return Math.round(255*c).toString(16).padStart(2,"0");
+    };
+    return "#"+f(0)+f(8)+f(4);
+  }
+  function brightness(hex){
+    const n=parseInt(hex.slice(1),16);
+    return ((n>>16)*299+((n>>8)&255)*587+(n&255)*114)/1000;
+  }
+  // random pairing: two dark inks with a 60-180° hue swing, light paper
+  // (dark paper is only reachable by hand-picking — Spiroglyphics rule)
+  function shuffleInks(){
+    const h=Math.random()*360;
+    const swing=(60+Math.random()*120)*(Math.random()<0.5?-1:1);
+    return{
+      top:  hslToHex(h,50+Math.random()*40,8+Math.random()*35),
+      base: hslToHex(h+swing,50+Math.random()*40,8+Math.random()*35),
+      paper:hslToHex(h+swing*Math.random(),20+Math.random()*40,62+Math.random()*26)
+    };
+  }
+
+  function loadImage(url){
+    return new Promise((res,rej)=>{
+      const img=new Image();
+      img.onload=()=>res(img);
+      img.onerror=()=>rej(new Error(url+" failed to load"));
+      img.src=url;
+    });
+  }
+
+  /* sample brightness on the STEP grid (accepts an <img> or a canvas);
+     auto-levels stretch the tones (the moiré's 50%->100% coverage range is
+     compressed, so the source must use all of it) and a light box blur keeps
+     the lines waving smoothly */
+  function sampleTones(img){
+    const c=document.createElement("canvas");
+    c.width=SW;c.height=SH;
+    const ctx=c.getContext("2d",{willReadFrequently:true});
+    // cover-crop: any aspect ratio lands centred on the 4:5 grid
+    const ta=SW/SH;
+    let sx=0,sy=0,sw=img.width,sh=img.height;
+    if(sw/sh>ta){sw=sh*ta;sx=(img.width-sw)/2;}
+    else{sh=sw/ta;sy=(img.height-sh)/2;}
+    ctx.drawImage(img,sx,sy,sw,sh,0,0,SW,SH);
+    const d=ctx.getImageData(0,0,SW,SH).data;
+    const v=new Float32Array(SW*SH);
+    const hist=new Float64Array(256);
+    for(let i=0;i<SW*SH;i++){
+      const l=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+      v[i]=l;hist[Math.round(l)]++;
+    }
+    // 2nd / 98th percentile auto-levels
+    const total=SW*SH;let acc=0,lo=0,hi=255;
+    for(let b=0;b<256;b++){acc+=hist[b];if(acc>=total*0.02){lo=b;break;}}
+    acc=0;
+    for(let b=255;b>=0;b--){acc+=hist[b];if(acc>=total*0.02){hi=b;break;}}
+    if(hi-lo<1)hi=lo+1;
+    for(let i=0;i<v.length;i++)v[i]=Math.max(0,Math.min(1,(v[i]-lo)/(hi-lo)));
+    // one [1,2,1] blur pass in each direction
+    const t=new Float32Array(v.length);
+    for(let y=0;y<SH;y++)for(let x=0;x<SW;x++){
+      const l=v[y*SW+Math.max(0,x-1)],m=v[y*SW+x],r=v[y*SW+Math.min(SW-1,x+1)];
+      t[y*SW+x]=(l+2*m+r)/4;
+    }
+    for(let y=0;y<SH;y++)for(let x=0;x<SW;x++){
+      const u=t[Math.max(0,y-1)*SW+x],m=t[y*SW+x],b=t[Math.min(SH-1,y+1)*SW+x];
+      v[y*SW+x]=(u+2*m+b)/4;
+    }
+    return v;
+  }
+
+  /* render a short message onto a 4:5 canvas — auto-fit bold text, wrapped */
+  function textTones(str){
+    const c=document.createElement("canvas");c.width=400;c.height=500;
+    const x=c.getContext("2d");
+    x.fillStyle="#fff";x.fillRect(0,0,400,500);
+    x.fillStyle="#111";x.textAlign="center";x.textBaseline="middle";
+    const words=str.trim().split(/\s+/);
+    const font=s=>"800 "+s+"px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+    function fits(size){
+      x.font=font(size);
+      const lines=[];let cur="";
+      for(const w of words){
+        if(x.measureText(w).width>360)return null; // single word too wide
+        const t=cur?cur+" "+w:w;
+        if(x.measureText(t).width<=360)cur=t;
+        else{lines.push(cur);cur=w;}
+      }
+      lines.push(cur);
+      return lines.length*size*1.12<=440?lines:null;
+    }
+    let size=216,lines=null;
+    for(;size>=24;size-=6){lines=fits(size);if(lines)break;}
+    if(!lines){x.font=font(24);lines=[str.trim().slice(0,20)];size=24;}
+    const lh=size*1.12,y0=250-(lines.length-1)*lh/2;
+    lines.forEach((ln,i)=>x.fillText(ln,200,y0+i*lh));
+    return sampleTones(c);
+  }
+
+  /* ---------- popovers (mutually exclusive, optional close hook) ---------- */
+  const POPS=[];
+  function regPop(btn,el,onClose){
+    POPS.push({el:el,btn:btn,onClose:onClose});
+    btn.addEventListener("click",e=>{
+      e.stopPropagation();
+      for(const p of POPS){
+        if(p.el!==el&&p.el.classList.contains("open")){
+          p.el.classList.remove("open");if(p.onClose)p.onClose();
+        }
+      }
+      const was=el.classList.contains("open");
+      el.classList.toggle("open");
+      if(was&&onClose)onClose();
+    });
+  }
+  document.addEventListener("pointerdown",e=>{
+    for(const p of POPS){
+      if(p.el.classList.contains("open")&&!p.el.contains(e.target)&&e.target!==p.btn){
+        p.el.classList.remove("open");if(p.onClose)p.onClose();
+      }
+    }
+  });
+
+  /* ---------- gallery / cover tiles ---------- */
+  function coverEl(a){
+    const d=document.createElement("div");d.className="galCover";
+    function letter(){
+      let n=a.book||a.title||"?";
+      if(n.indexOf(":")>-1)n=n.slice(n.lastIndexOf(":")+1);
+      d.textContent=n.trim().replace(/^The\s+/i,"").charAt(0).toUpperCase();
+    }
+    if(a.cover){
+      const img=document.createElement("img");img.src=a.cover;img.alt="";
+      img.onerror=function(){img.remove();letter();};
+      d.appendChild(img);
+    }else letter();
+    return d;
+  }
+
+  const panel=document.getElementById("panel");
+  const gal=document.getElementById("gallery");
+  const createPanel=document.getElementById("createPanel");
+
+  function buildGallery(list,cur){
+    if(list.length<2)return; // switcher only once there's something to switch to
+    list.forEach(a=>{
+      const item=document.createElement("a");
+      item.className="galItem"+(a.id===cur.id?" current":"");
+      item.href="?art="+encodeURIComponent(a.id);
+      item.appendChild(coverEl(a));
+      const tx=document.createElement("div");
+      const t1=document.createElement("div");t1.className="galTitle";t1.textContent=a.title;
+      const t2=document.createElement("div");t2.className="galBook";t2.textContent=a.book||"";
+      tx.appendChild(t1);tx.appendChild(t2);item.appendChild(tx);
+      gal.appendChild(item);
+    });
+    const btn=document.getElementById("galBtn");
+    btn.style.display="";
+    regPop(btn,gal);
+  }
+
+  /* ---------- boot one artwork ---------- */
+  async function boot(entry,list){
+    const img=await loadImage("art/"+entry.id+"/tone.png");
+    let lastTones=sampleTones(img);
+
+    art.setAttribute("viewBox","0 0 "+VBW+" "+VBH);
+    art.style.setProperty("--ar",VBW/VBH);
+
+    // everything lives in one group so the corner mini can <use> it live
+    const artRoot=document.createElementNS(svgNS,"g");
+    artRoot.setAttribute("id","artRoot");
+    art.appendChild(artRoot);
+    document.getElementById("miniSvg").setAttribute("viewBox","0 0 "+VBW+" "+VBH);
+
+    const baseG=document.createElementNS(svgNS,"g");
+    baseG.setAttribute("id","baseG");
+    artRoot.appendChild(baseG);
+    const revealG=document.createElementNS(svgNS,"g");
+    revealG.setAttribute("id","revealG");
+    artRoot.appendChild(revealG);
+
+    let pattern=PATTERNS.lines;
+    const basePaths=[];let baseDs=[];
+
+    // (re)build both sheets for the current pattern + tones + tune, in place —
+    // pattern switches, tune changes and Create actions all land at the
+    // current scroll state
+    function buildSheets(){
+      setTune();
+      baseDs=pattern.buildBase(lastTones);
+      baseG.setAttribute("stroke-width",STROKE);
+      revealG.setAttribute("stroke-width",STROKE);
+      baseG.textContent="";basePaths.length=0;
+      for(const d of baseDs){
+        const p=document.createElementNS(svgNS,"path");
+        p.setAttribute("d",d);
+        p.style.opacity=0;
+        baseG.appendChild(p);basePaths.push(p);
+      }
+      revealG.style.transform="";
+      revealG.innerHTML=pattern.revealMarkup();
+      if(pattern.postMount)pattern.postMount(revealG);
+      update();
+    }
+
+    // per-artwork HUD
+    const t=document.getElementById("title");
+    function setTitle(label){
+      t.textContent=label+" ";
+      const sp=document.createElement("span");sp.textContent="· scroll to align";
+      t.appendChild(sp);
+    }
+    setTitle(entry.title);
+    document.title=entry.title+" · Phase Portrait";
+    done.textContent="✓ Aligned — one portrait, two sheets of lines";
+
+    // completion card — no published book yet, so it reads as an experiment
+    bookCard.appendChild(coverEl(entry));
+    const tx=document.createElement("div");
+    const l1=document.createElement("div");l1.className="bcFrom";l1.textContent=entry.buy?"From the book":"A new experiment";
+    const l2=document.createElement("div");l2.className="bcBook";l2.textContent=entry.book||"Phase Portrait";
+    tx.appendChild(l1);tx.appendChild(l2);
+    if(entry.buy){
+      const a=document.createElement("a");a.className="bcBuy";a.href=entry.buy;
+      a.target="_blank";a.rel="noopener";a.textContent="Get the book";
+      tx.appendChild(a);
+    }
+    bookCard.appendChild(tx);
+    bookCard.dataset.ready="1";
+
+    /* ----- scroll choreography -----
+       the base sheet's units sweep in as innocent stripes > the revealer sheet
+       arrives (lines slide in, rings converge outside-in), phase-snapped half
+       a period off so the portrait shows as a NEGATIVE — snapping avoids
+       strobing on fast scrolls > a damped oscillation flickers it
+       positive/negative and locks into registration > step-back finale melts
+       the pattern into a photograph */
+    const LINE_A=0.02,LINE_B=0.30;
+    const DESC_A=0.30,DESC_B=0.55;
+    const DRIFT_A=0.55,DRIFT_B=0.85;
+    const SHRINK_A=0.92,SHRINK_B=0.99;
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const easeInOut=u=>u<0.5?2*u*u:1-Math.pow(-2*u+2,2)/2;
+    const FINE=matchMedia("(pointer:fine)").matches;
+    let ticking=false,dragY=0,breatheOff=0,breathing=false;
+
+    function revealOffset(p){
+      const e=easeInOut(clamp((p-DESC_A)/(DESC_B-DESC_A),0,1));
+      const desc=pattern.dir*P*Math.round(pattern.periods*(1-e));
+      const u=clamp((p-DRIFT_A)/(DRIFT_B-DRIFT_A),0,1);
+      const half=-(P/2)*(1-u)*Math.cos(2*Math.PI*1.75*u);
+      return desc+half;
+    }
+
+    const breatheBtn=document.getElementById("breatheBtn");
+    function update(){
+      ticking=false;
+      const max=document.getElementById("track").offsetHeight-window.innerHeight;
+      const p=max>0?clamp(window.scrollY/max,0,1):0;
+      bar.style.width=(p*100).toFixed(2)+"%";
+
+      // phase 1: the base sheet's units sweep in (opacity only)
+      const N=basePaths.length;
+      const lp=clamp((p-LINE_A)/(LINE_B-LINE_A),0,1);
+      const FADE=12;
+      for(let i=0;i<N;i++)
+        basePaths[i].style.opacity=clamp((lp*(N+FADE)-i)/FADE,0,1);
+
+      document.getElementById("intro").style.opacity=1-clamp((p-LINE_A)/0.06,0,1);
+
+      // phases 2+3: the revealer sheet arrives, flickers, and locks
+      pattern.applyOffset(revealG,revealOffset(p)+dragY+breatheOff);
+
+      const e=clamp((p-DESC_A)/(DESC_B-DESC_A),0,1);
+      const u=clamp((p-DRIFT_A)/(DRIFT_B-DRIFT_A),0,1);
+      if(p<DESC_A)count.textContent=pattern.noun+" "+Math.round(lp*N)+" / "+N;
+      else if(p<DRIFT_A)count.textContent="Overlay "+Math.round(e*100)+"%";
+      else if(u<1)count.textContent="Aligning · "+Math.round(u*100)+"%";
+      else count.textContent="Aligned";
+
+      // step-back finale: the aligned piece shrinks to distance size and the
+      // browser's antialiasing melts the grating into a smooth photograph
+      const shrink=clamp((p-SHRINK_A)/(SHRINK_B-SHRINK_A),0,1);
+      art.style.transform=shrink>0?"scale("+(1-shrink*0.62).toFixed(4)+")":"";
+      mini.classList.toggle("show",p>DESC_A+0.05&&p<SHRINK_A);
+      breatheBtn.style.display=(p>0.85||breathing)?"":"none";
+
+      done.classList.toggle("show",p>0.88);
+      bookCard.classList.toggle("show",p>0.88&&bookCard.dataset.ready==="1");
+      if(p>0.9){
+        hint.textContent=FINE?"Drag to slide the top sheet ↘":"Scroll back to replay ↑";
+        hint.style.opacity=1;
+      }else{
+        if(p<0.02)hint.textContent="Scroll to reveal";
+        hint.style.opacity=p>0.02?0:1;
+      }
+    }
+    const schedule=()=>{if(!ticking){ticking=true;requestAnimationFrame(update);}};
+    addEventListener("scroll",schedule,{passive:true});
+    addEventListener("resize",update);
+    buildSheets();
+
+    // breathe: an opt-in ambient wander of the top sheet — two slow
+    // frequencies inside ±~2.6 units, pulsing through soft negatives
+    let breatheT0=0,breatheRAF=0;
+    function breatheLoop(ts){
+      if(!breathing)return;
+      const bt=(ts-breatheT0)/1000;
+      breatheOff=2.6*Math.sin(bt*0.4)*(0.5+0.5*Math.sin(bt*0.13));
+      update();
+      breatheRAF=requestAnimationFrame(breatheLoop);
+    }
+    breatheBtn.addEventListener("click",()=>{
+      breathing=!breathing;
+      breatheBtn.textContent=breathing?"Still":"Breathe";
+      if(breathing){breatheT0=performance.now();breatheRAF=requestAnimationFrame(breatheLoop);}
+      else{cancelAnimationFrame(breatheRAF);breatheOff=0;update();}
+    });
+
+    // free drag (mouse only — touch owns the scroll): slides the revealer's
+    // phase, wrapped to one period, so the portrait flickers under your hand
+    let dragging=false,last=0;
+    const dragPos=e=>pattern.dragAxis==="x"?e.clientX:e.clientY;
+    stage.addEventListener("pointerdown",e=>{
+      if(e.pointerType!=="mouse")return;
+      dragging=true;last=dragPos(e);
+      stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener("pointermove",e=>{
+      if(!dragging)return;
+      dragY+=(dragPos(e)-last)*(VBH/art.getBoundingClientRect().height);
+      last=dragPos(e);
+      dragY=((dragY+P/2)%P+P)%P-P/2;
+      schedule();
+    });
+    // released near register, the sheet clicks magnetically into place
+    const endDrag=()=>{
+      dragging=false;
+      if(Math.abs(dragY)<P/10){dragY=0;schedule();}
+    };
+    stage.addEventListener("pointerup",endDrag);
+    stage.addEventListener("pointercancel",endDrag);
+
+    // rings: double-click moves the bullseye
+    stage.addEventListener("dblclick",e=>{
+      if(pattern!==PATTERNS.rings)return;
+      const r=art.getBoundingClientRect();
+      CX=clamp((e.clientX-r.left)/r.width*VBW,0,VBW);
+      CY=clamp((e.clientY-r.top)/r.height*VBH,0,VBH);
+      buildSheets();
+    });
+
+    // lift the sheet: the base grating alone — innocent wavy stripes,
+    // no portrait anywhere until the top sheet comes back down
+    document.getElementById("liftBtn").addEventListener("click",e=>{
+      const off=document.body.classList.toggle("lifted");
+      e.target.textContent=off?"Lower the sheet":"Lift the sheet";
+    });
+
+    /* ----- style panel: patterns + colours + tune ----- */
+    let cols={top:INKSETS[0].top,base:INKSETS[0].base,paper:INKSETS[0].paper};
+    const patsEl=document.getElementById("pats");
+    const presetsEl=document.getElementById("presets");
+    const wellsEl=document.getElementById("wells");
+    const wells=[];
+
+    function applyCols(){
+      const rs=document.documentElement.style;
+      rs.setProperty("--ink-top",cols.top);
+      rs.setProperty("--ink-base",cols.base);
+      rs.setProperty("--paper",cols.paper);
+      document.getElementById("themeMeta").setAttribute("content",cols.paper);
+      // dark paper flips the UI tokens and the overlay blend (multiply->screen)
+      document.body.classList.toggle("dark",brightness(cols.paper)<128);
+      wells.forEach(w=>w.inp.value=cols[w.key]);
+      [...presetsEl.children].forEach(btn=>{
+        btn.classList.toggle("current",btn.dataset.cols===[cols.top,cols.base,cols.paper].join());
+      });
+    }
+    function stripEl(cs){
+      const strip=document.createElement("span");
+      strip.className="strip";
+      for(const c of cs){const i=document.createElement("i");i.style.background=c;strip.appendChild(i);}
+      return strip;
+    }
+    for(const ink of INKSETS){
+      const b=document.createElement("button");
+      b.className="preset";
+      b.dataset.cols=[ink.top,ink.base,ink.paper].join();
+      b.appendChild(stripEl([ink.top,ink.base,ink.paper]));
+      b.appendChild(document.createTextNode(ink.name));
+      b.addEventListener("click",()=>{cols={top:ink.top,base:ink.base,paper:ink.paper};applyCols();});
+      presetsEl.appendChild(b);
+    }
+    for(const w of [{key:"top",label:"Top"},{key:"base",label:"Base"},{key:"paper",label:"Paper"}]){
+      const d=document.createElement("label");
+      d.className="well";
+      const inp=document.createElement("input");
+      inp.type="color";inp.value=cols[w.key];
+      inp.addEventListener("input",()=>{cols[w.key]=inp.value;applyCols();});
+      d.appendChild(inp);
+      d.appendChild(document.createTextNode(w.label));
+      wellsEl.appendChild(d);wells.push({key:w.key,inp:inp});
+    }
+    document.getElementById("shuffleBtn").addEventListener("click",()=>{
+      cols=shuffleInks();applyCols();
+    });
+
+    // tune sliders: density rebuilds are debounced; the wave-height row and
+    // ring-centre tip only show for their patterns
+    function refreshTuneVis(){
+      document.getElementById("ampRow").style.display=pattern===PATTERNS.waves?"":"none";
+      document.getElementById("ringTip").style.display=pattern===PATTERNS.rings?"":"none";
+    }
+    let tuneT;
+    function tuneRebuild(){clearTimeout(tuneT);tuneT=setTimeout(buildSheets,150);}
+    const tuneP=document.getElementById("tuneP");
+    tuneP.addEventListener("input",()=>{
+      P=+tuneP.value;
+      document.getElementById("tunePv").textContent=tuneP.value;
+      tuneRebuild();
+    });
+    const tuneC=document.getElementById("tuneC");
+    tuneC.addEventListener("input",()=>{
+      CONTRAST=+tuneC.value/100;
+      document.getElementById("tuneCv").textContent=tuneC.value;
+      tuneRebuild();
+    });
+    const tuneA=document.getElementById("tuneA");
+    tuneA.addEventListener("input",()=>{
+      AMP=+tuneA.value;
+      document.getElementById("tuneAv").textContent=tuneA.value;
+      if(pattern===PATTERNS.waves)tuneRebuild();
+    });
+
+    for(const id of Object.keys(PATTERNS)){
+      const pat=PATTERNS[id];
+      const b=document.createElement("button");
+      b.className="preset"+(pat===pattern?" current":"");
+      const g=document.createElementNS(svgNS,"svg");
+      g.setAttribute("viewBox","0 0 20 20");
+      g.setAttribute("class","patGlyph");
+      g.innerHTML='<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'+pat.glyph+"</g>";
+      b.appendChild(g);
+      b.appendChild(document.createTextNode(pat.label));
+      b.addEventListener("click",()=>{
+        if(pat===pattern)return;
+        pattern=pat;
+        if(pat===PATTERNS.rings){CX=VBW/2;CY=VBH/2;} // fresh centre each visit
+        [...patsEl.children].forEach(x=>x.classList.toggle("current",x===b));
+        refreshTuneVis();
+        buildSheets();
+      });
+      patsEl.appendChild(b);
+    }
+    regPop(document.getElementById("styleBtn"),panel);
+    refreshTuneVis();
+    applyCols();
+
+    // print kit: the two sheets as standalone SVGs in the current style —
+    // base on paper, overlay on clear acetate, slide by hand
+    function download(name,text){
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(new Blob([text],{type:"image/svg+xml"}));
+      a.download=name;a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    }
+    document.getElementById("printBtn").addEventListener("click",()=>{
+      const head='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+VBW+' '+VBH+'" width="160mm" height="200mm">';
+      const base=head+"\n<!-- Phase Portrait · base sheet — print on paper -->\n"
+        +'<rect width="'+VBW+'" height="'+VBH+'" fill="'+cols.paper+'"/>'
+        +'<g fill="none" stroke="'+cols.base+'" stroke-width="'+STROKE+'" stroke-linejoin="round">'
+        +baseDs.map(d=>'<path d="'+d+'"/>').join("\n")+"</g>\n</svg>";
+      const overlay=head+"\n<!-- Phase Portrait · overlay — print on clear acetate, lay over the base sheet and slide -->\n"
+        +'<g fill="none" stroke="'+cols.top+'" stroke-width="'+STROKE+'" stroke-linejoin="round">'
+        +pattern.revealMarkup()+"</g>\n</svg>";
+      download("phase-portrait-base.svg",base);
+      setTimeout(()=>download("phase-portrait-overlay.svg",overlay),400);
+    });
+
+    /* ----- create panel: image · camera · message -----
+       Session-only — to keep one, save it as art/<id>/tone.png + a manifest
+       entry (see art/manifest.js). Faces that fill the frame read best. */
+    const noteEl=document.getElementById("note");
+    let noteT;
+    function note(msg){
+      noteEl.textContent=msg;
+      noteEl.classList.add("show");
+      clearTimeout(noteT);
+      noteT=setTimeout(()=>noteEl.classList.remove("show"),3000);
+    }
+    function applyTones(tones,label,msg){
+      lastTones=tones;
+      buildSheets();
+      setTitle(label);
+      note(scrollY<innerHeight?msg+" — scroll to reveal it":msg);
+      createPanel.classList.remove("open");
+    }
+    function applyImage(file){
+      if(!file)return;
+      // loose check: trust the decoder, some files arrive with no MIME type
+      if(file.type&&!/^image\//.test(file.type)){note("That's not an image file");return;}
+      const url=URL.createObjectURL(file);
+      loadImage(url).then(im=>{
+        URL.revokeObjectURL(url);
+        applyTones(sampleTones(im),"Your image","✓ Image encoded");
+      }).catch(()=>{
+        URL.revokeObjectURL(url);
+        note("Couldn't read that image — try a JPG or PNG");
+      });
+    }
+    const pick=document.getElementById("filePick");
+    document.getElementById("chooseBtn").addEventListener("click",()=>pick.click());
+    pick.addEventListener("change",()=>{applyImage(pick.files[0]);pick.value="";});
+    addEventListener("dragover",e=>e.preventDefault());
+    addEventListener("drop",e=>{e.preventDefault();applyImage(e.dataTransfer.files[0]);});
+
+    // camera: preview is CSS-mirrored; the snap is drawn mirrored to match
+    const camVid=document.getElementById("camVid");
+    const camBox=document.getElementById("camBox");
+    const camBtn=document.getElementById("camBtn");
+    let camStream=null;
+    function stopCam(){
+      if(camStream){camStream.getTracks().forEach(tr=>tr.stop());camStream=null;}
+      camVid.srcObject=null;
+      camBox.style.display="none";camBtn.style.display="";
+    }
+    camBtn.addEventListener("click",()=>{
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+        note("Camera not available");return;
+      }
+      navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}}).then(st=>{
+        camStream=st;camVid.srcObject=st;
+        camBox.style.display="";camBtn.style.display="none";
+      }).catch(()=>note("Camera not available"));
+    });
+    document.getElementById("snapBtn").addEventListener("click",()=>{
+      if(!camVid.videoWidth){note("Camera warming up — try again");return;}
+      const c=document.createElement("canvas");
+      c.width=camVid.videoWidth;c.height=camVid.videoHeight;
+      const x=c.getContext("2d");
+      x.translate(c.width,0);x.scale(-1,1);
+      x.drawImage(camVid,0,0);
+      stopCam();
+      applyTones(sampleTones(c),"Your selfie","✓ Selfie encoded");
+    });
+    document.getElementById("camCancel").addEventListener("click",stopCam);
+    regPop(document.getElementById("createBtn"),createPanel,stopCam);
+
+    // message: text becomes the tone image — words hidden in the stripes
+    const msgInput=document.getElementById("msgInput");
+    function applyMsg(){
+      const v=msgInput.value.trim();
+      if(!v)return;
+      applyTones(textTones(v),"Your message","✓ Message hidden");
+    }
+    document.getElementById("msgBtn").addEventListener("click",applyMsg);
+    msgInput.addEventListener("keydown",e=>{if(e.key==="Enter")applyMsg();});
+  }
+
+  /* ---------- manifest + start ---------- */
+  const FALLBACK=[{id:"portrait-01",title:"Portrait 01",book:"Phase Portrait"}];
+  function start(list){
+    const param=(new URLSearchParams(location.search).get("art")||"").toLowerCase();
+    const entry=(/^[a-z0-9-]+$/.test(param)&&list.find(a=>a.id===param))||list[0];
+    buildGallery(list,entry);
+    boot(entry,list).catch(err=>{
+      console.error(err);
+      count.textContent="Couldn't load artwork";
+    });
+  }
+  const s=document.createElement("script");
+  s.src="art/manifest.js";
+  s.onload=()=>start(Array.isArray(window.PHASE_MANIFEST)&&window.PHASE_MANIFEST.length?window.PHASE_MANIFEST:FALLBACK);
+  s.onerror=()=>start(FALLBACK);
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
