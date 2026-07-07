@@ -30,7 +30,7 @@
 
   /* the two sheets: fine ink gratings. The base carries the portrait as tiny
      phase-shifts; the revealer is perfectly uniform and moves via inline
-     styles/attributes (inline so the <use> mini mirrors it live). Two inks
+     styles/attributes. Two inks
      compound where the sheets cross — multiply on light paper like printed
      acetate, screen on dark paper so light inks compose instead of vanishing.
      Stroke width follows the density slider as an attribute on the groups. */
@@ -40,21 +40,8 @@
   body.dark #revealG{mix-blend-mode:screen;}
   body.lifted #revealG{opacity:0 !important;}
 
-  /* "from a distance" mini: a live <use> mirror, bottom-left. The browser's
-     own antialiasing melts the fine grating into smooth tone at this size —
-     the moiré genuinely resolves at a distance, which is the whole point. */
-  #mini{position:fixed;left:20px;bottom:22px;width:140px;z-index:4;cursor:pointer;
-    opacity:0;pointer-events:none;transition:opacity .5s,width .3s ease;}
-  #mini.show{opacity:1;pointer-events:auto;}
-  #mini.big{width:280px;}
-  #miniSvg{display:block;width:100%;height:auto;background:var(--paper);isolation:isolate;
-    border:1px solid var(--border);border-radius:10px;}
-  #miniLabel{font-size:11px;color:var(--muted);text-align:center;margin-top:5px;}
-  @media (max-width:600px){
-    #mini{display:none;} /* the step-back finale still gives the distance view */
-  }
   @media (prefers-reduced-motion: reduce){
-    #mini,#revealG,#done,#note,#bookCard,#hint{transition:none;}
+    #revealG,#done,#note,#bookCard,#hint{transition:none;}
     #breatheBtn{display:none !important;} /* ambient motion is opt-in only */
   }
 
@@ -210,11 +197,6 @@
     <div id="msgRow"><input id="msgInput" type="text" maxlength="40" placeholder="Write something&hellip;" /><button id="msgBtn">Hide</button></div>
   </div>
 
-  <div id="mini" title="How it looks from a distance">
-    <svg id="miniSvg" xmlns="http://www.w3.org/2000/svg"><use href="#artRoot"/></svg>
-    <div id="miniLabel">from a distance</div>
-  </div>
-
   <div id="intro">One portrait, hidden in two sheets of lines</div>
   <div id="bookCard"></div>
   <div id="hint">Scroll to reveal</div>
@@ -235,8 +217,6 @@
   const hint=document.getElementById("hint");
   const done=document.getElementById("done");
   const bookCard=document.getElementById("bookCard");
-  const mini=document.getElementById("mini");
-  mini.addEventListener("click",()=>mini.classList.toggle("big"));
 
   /* ---------- the moiré geometry ----------
      Classic hidden-image line moiré. Both sheets are gratings of period P with
@@ -621,11 +601,10 @@
     art.setAttribute("viewBox","0 0 "+VBW+" "+VBH);
     art.style.setProperty("--ar",VBW/VBH);
 
-    // everything lives in one group so the corner mini can <use> it live
+    // both sheets live in one group
     const artRoot=document.createElementNS(svgNS,"g");
     artRoot.setAttribute("id","artRoot");
     art.appendChild(artRoot);
-    document.getElementById("miniSvg").setAttribute("viewBox","0 0 "+VBW+" "+VBH);
 
     const baseG=document.createElementNS(svgNS,"g");
     baseG.setAttribute("id","baseG");
@@ -743,7 +722,6 @@
       // browser's antialiasing melts the grating into a smooth photograph
       const shrink=clamp((p-SHRINK_A)/(SHRINK_B-SHRINK_A),0,1);
       art.style.transform=shrink>0?"scale("+(1-shrink*0.62).toFixed(4)+")":"";
-      mini.classList.toggle("show",p>DESC_A+0.05&&p<SHRINK_A);
       breatheBtn.style.display=(p>0.85||breathing)?"":"none";
 
       done.classList.toggle("show",p>0.88);
